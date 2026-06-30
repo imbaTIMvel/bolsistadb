@@ -1,6 +1,6 @@
 # BolsistaDB
 
-Programa de associação de dados entre planilhas para tratamento de dados bancários dos alunos/bolsistas.
+Repositório oficial do programa BolsistaDB (*Bolsista D*ata*B*ase ou *D*ados *B*ancários), para associação de dados entre planilhas para tratamento de dados bancários dos alunos/bolsistas.
 
 ![Logo do BolsistaDB](assets/icons/bolsistadb.ico)
 
@@ -44,10 +44,10 @@ Feito isso, clique no arquivo `.exe` para abrir o programa.
 
 O programa possui dois campos para inserção de arquivos (planilhas Excel) de entrada. São eles:
 
-| Campo               | Extensões de arquivo aceitas | Padronização do arquivo                                                | Aceita mais de um arquivo? |
-| ------------------- | ---------------------------- | ---------------------------------------------------------------------- | -------------------------- |
-| Lista de Bolsistas  | .xlsx                        | [lista_alunos](assets/standard_sheets/lista_bolsistas.xlsx)            | Não                        |
-| Formulário Bancário | .xlsx                        | [formulario_bancario](assets/standard_sheets/formulario_bancario.xlsx) | Não                        |
+| Campo               | Extensões de arquivo aceitas | Padronização do arquivo                                                 | Aceita mais de um arquivo? |
+| ------------------- | ---------------------------- | ----------------------------------------------------------------------- | -------------------------- |
+| Lista de Bolsistas  | .xlsx                        | [lista_bolsistas](assets/standard_sheets/lista_bolsistas.xlsx)          | Não                        |
+| Formulário Bancário | .xlsx                        | [formulario_bancario](assets/standard_sheets/formulario_bancario.xlsx)  | Não                        |
 
 Para cada um dos campos, há dois botões: `Selecionar` e `Remover`. Ao clicar em `Selecionar`, o programa abre um diálogo do *Explorador de Arquivos*, permitindo que o usuário selecione o arquivo Excel correspondente ao campo.
 
@@ -75,7 +75,7 @@ Além disso, o programa possui:
 
 ### 2.4 Execução
 
-Ao inserir uma Lista de Alunos e um Formulário de Dados Bancários, ao clicar em `Gerar Planilha`, o programa deve gerar uma planilha no formato [template](assets/standard_sheets/template.xlsx), com as colunas:
+Ao inserir uma Lista de Bolsistas e um Formulário de Dados Bancários, ao clicar em `Gerar Planilha`, o programa deve gerar uma planilha no formato [template](assets/standard_sheets/template.xlsx), com as colunas:
 
 - `No.`: Contagem do item na planilha gerada (em relação ao total);
 - `ID`: Número associado ao aluno/bolsista dentro de sua respectiva turma;
@@ -102,7 +102,9 @@ Ao inserir uma Lista de Alunos e um Formulário de Dados Bancários, ao clicar e
 Caso o aluno seja menor de idade (o algoritmo checa a partir da data inserida em `DATA NASCIMENTO`), o programa acusará caso as colunas `Nome Responsável`, `CPF - Respon.`, `E-mail Respon.` e `Contato Respon.` estejam vazias. Para associar adequadamente as informações entre a Lista de Bolsistas e o Formulário de Dados Bancários, o programa procura por correspondências de **nome completo**, **CPF** e **data de nascimento**. Em caso de múltiplas correspondências ou nenhuma correspondência, o programa deve reportar os erros em um arquivo `.txt` salvo na mesma pasta (a ser escolhida) da planilha de saída.
 
 > [!Note]
-> O programa possui um algoritmo próprio de tratamento de dados bancários, os adequando a convenções especificadas para vários bancos (do banco de dados da FEBRABAN) conforme definido no arquivo [convencoes_bancos](assets/database/convencoes_bancos.pdf). Em caso de dados inconsistentes, os erros no algoritmo são reportados em colunas adicionais geradas na planilha de saída: `Status` e `Exceções do algoritmo`. Adicionalmente, as informações originais (inseridas pelos respondentes, antes do tratamento de dados) são disponibilizadas na planilha de saída, nas colunas adicionais `Banco (original)`, `Agência (original)`, `Díg.Ag (original)`, `Conta (original)` e `Díg.C/C (original)`.
+> O programa possui um algoritmo próprio de tratamento de dados bancários, os adequando a convenções específicas de cada banco (segundo o banco de dados da FEBRABAN), conforme definido no arquivo [convencoes_bancos](assets/database/convencoes_bancos.pdf). O algoritmo prioriza a identificação do banco pelo **nome** (e não pelo código numérico) e aplica, para cada banco, o padrão de dígitos correspondente à agência e à conta corrente — incluindo o ajuste automático de zeros à esquerda e a remoção de sinais (hífens e pontos) inseridos pelo respondente.
+>
+> Em caso de dados inconsistentes — como ausência de convenção definida para um banco, ou dados não-computáveis inseridos pelo respondente — o algoritmo reporta as exceções em duas colunas adicionais geradas na planilha de saída: `Status` (nível de validação aplicado) e `Exceções do algoritmo` (descrição do problema identificado). Adicionalmente, as informações originais (inseridas pelos respondentes, antes do tratamento de dados) são preservadas na planilha de saída, nas colunas adicionais `Banco (original)`, `Agência (original)`, `Díg.Ag (original)`, `Conta (original)` e `Díg.C/C (original)`, servindo de fallback para o operador em casos de conferência manual.
 
 > [!Note]
 > Com os arquivos de entrada inseridos, ao clicar no botão `Gerar Planilha`, o programa deve fazer as correspondências entre a Lista de Bolsistas e o Formulário de Dados Bancários, gerando a planilha de saída (no formato especificado) e permitindo que o usuário escolha o local de salvamento do arquivo após o processamento.
@@ -130,9 +132,22 @@ Para fazer o download desta versão, clique [aqui](https://github.com/imbaTIMvel
 *Release* inicial do programa de associação de dados entre planilhas para tratamento de dados bancários dos alunos/bolsistas.
 
 **Features:**
-===============================================================================================================================================================
+- Compatível com planilhas Excel, dos tipos:
+  - `Lista de Bolsistas`: Na padronização [lista_alunos](assets/standard_sheets/lista_bolsistas.xlsx), no formato .xlsx;
+  - `Formulário Bancário`: Na padronização [formulario_bancario](assets/standard_sheets/formulario_bancario.xlsx), no formato .xlsx;
+- Associa dados de identificação (nome completo, CPF, data de nascimento, e-mail, RG, endereço e CEP) entre os dois arquivos de entrada, fazendo a correspondência por **nome completo**, **CPF** e **data de nascimento**;
+- Identifica automaticamente, a partir da `DATA NASCIMENTO`, se o aluno/bolsista é menor de idade — exigindo, nesse caso, os dados do responsável legal (`Nome Responsável`, `CPF - Respon.`, `E-mail Respon.` e `Contato Respon.`);
+- Possui um algoritmo próprio de tratamento de dados bancários, que:
+  - Identifica o banco prioritariamente pelo **nome** (e não pelo código numérico), reduzindo erros de digitação no formulário;
+  - Aplica, a cada banco, a convenção de dígitos específica (segundo o banco de dados [convencoes_bancos](assets/database/convencoes_bancos.pdf), baseado na FEBRABAN) para agência e conta corrente, incluindo ajuste de zeros à esquerda;
+  - Remove sinais (hífens e pontos) informados pelo respondente sem comprometer a integridade do número da conta;
+  - Reporta o nível de validação aplicado (`Status`) e quaisquer inconsistências (`Exceções do algoritmo`) em colunas adicionais da planilha de saída;
+  - Preserva os dados originais (antes do tratamento) em colunas adicionais, como fallback para conferência manual do operador;
+- Organiza a planilha de saída por turma e, dentro de cada turma, por ordem alfabética de aluno/bolsista;
+- Reporta erros de processamento, ausência de correspondência e inconsistências de dados em um arquivo `error_logs.txt`, salvo na mesma pasta da planilha de saída;
+- Permite que o usuário escolha o diretório de salvamento para a planilha (.xlsx) de saída.
 
-Clique [aqui](https://github.com/imbaTIMvel/smartpc/releases) para acessar o **changelog completo**.
+Clique [aqui](https://github.com/imbaTIMvel/bolsistadb/releases) para acessar o **changelog completo**.
 
 ## 4. Desenvolvimento
 
@@ -142,10 +157,10 @@ Timóteo Altoé (*handle*: [imbaTIMvel](github.com/imbaTIMvel))
 
 **Datas:**
 
-`29/04/2026` Início do projeto
+`17/06/2026` Início do projeto
 
-`05/05/2026` Lançamento da versão *alfa* - para testes internos
+`26/06/2026` Lançamento da versão *alfa* - para testes internos
 
-`20/05/2026` Publicação da primeira versão oficial no GitHub
+`30/06/2026` Publicação da primeira versão oficial no GitHub
 
-`21/05/2026` Lançamento da versão *beta* - para testes
+`30/06/2026` Lançamento da versão *beta* - para testes
