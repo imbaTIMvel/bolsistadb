@@ -136,7 +136,7 @@ Para fazer o download desta versão, clique [aqui](https://github.com/imbaTIMvel
   - `Lista de Bolsistas`: Na padronização [lista_bolsistas](assets/standard_sheets/lista_bolsistas.xlsx), no formato .xlsx;
   - `Formulário Bancário`: Na padronização [formulario_bancario](assets/standard_sheets/formulario_bancario.xlsx), no formato .xlsx;
 - Associa dados de identificação (nome completo, CPF, data de nascimento, e-mail, RG, endereço e CEP) entre os dois arquivos de entrada, fazendo a correspondência por **nome completo**, **CPF** e **data de nascimento**;
-- Identifica automaticamente, a partir da `DATA NASCIMENTO`, se o aluno/bolsista é menor de idade — exigindo, nesse caso, os dados do responsável legal (`Nome Responsável`, `CPF - Respon.`, `E-mail Respon.` e `Contato Respon.`);
+- Identifica automaticamente, a partir de `DATA NASCIMENTO`, se o aluno/bolsista é menor de idade — exigindo, nesse caso, os dados do responsável legal (`Nome Responsável`, `CPF - Respon.`, `E-mail Respon.` e `Contato Respon.`);
 - Possui um algoritmo próprio de tratamento de dados bancários, que:
   - Identifica o banco prioritariamente pelo **nome** (e não pelo código numérico), reduzindo erros de digitação no formulário;
   - Aplica, a cada banco, a convenção de dígitos específica (segundo o banco de dados [convencoes_bancos](assets/database/convencoes_bancos.pdf), baseado na FEBRABAN) para agência e conta corrente, incluindo ajuste de zeros à esquerda;
