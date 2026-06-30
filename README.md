@@ -111,9 +111,9 @@ Caso o aluno seja menor de idade (o algoritmo checa a partir da data inserida em
 
 ![Gerando a planilha](assets/tutorial/create_sheet_01.png)
 
-![Caixa de aviso](assets/tutorial/create_sheet_02.png)
+![Salvando o arquivo](assets/tutorial/create_sheet_02.png)
 
-![Salvando o arquivo](assets/tutorial/create_sheet_03.png)
+![Caixa de aviso](assets/tutorial/create_sheet_03.png)
 
 > [!Warning]
 > Todos os erros de processamento, não correspondência e/ou inconsistência de dados são reportados no arquivo `error_logs.txt`, que é salvo na mesma pasta da planilha de saída.
