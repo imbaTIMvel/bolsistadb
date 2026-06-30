@@ -133,7 +133,7 @@ Para fazer o download desta versão, clique [aqui](https://github.com/imbaTIMvel
 
 **Features:**
 - Compatível com planilhas Excel, dos tipos:
-  - `Lista de Bolsistas`: Na padronização [lista_alunos](assets/standard_sheets/lista_bolsistas.xlsx), no formato .xlsx;
+  - `Lista de Bolsistas`: Na padronização [lista_bolsistas](assets/standard_sheets/lista_bolsistas.xlsx), no formato .xlsx;
   - `Formulário Bancário`: Na padronização [formulario_bancario](assets/standard_sheets/formulario_bancario.xlsx), no formato .xlsx;
 - Associa dados de identificação (nome completo, CPF, data de nascimento, e-mail, RG, endereço e CEP) entre os dois arquivos de entrada, fazendo a correspondência por **nome completo**, **CPF** e **data de nascimento**;
 - Identifica automaticamente, a partir da `DATA NASCIMENTO`, se o aluno/bolsista é menor de idade — exigindo, nesse caso, os dados do responsável legal (`Nome Responsável`, `CPF - Respon.`, `E-mail Respon.` e `Contato Respon.`);
