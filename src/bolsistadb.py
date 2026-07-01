@@ -321,369 +321,840 @@ def resolver_banco(valor_bruto):
 
 # ==============================
 # SPECS BANCÁRIOS
-# Fonte: documentação oficial de cada banco + análise dos dados reais
-# ag_digits  → comprimento canônico do número da agência (sem dígito)
-# ag_has_dig → se a agência tem dígito verificador próprio
-# cc_digits  → comprimento canônico do número da conta (sem dígito)
-# cc_has_dig → se a conta tem dígito verificador próprio
+# Fonte: "Regras de Protocolação e Validação Bancária" (PDF oficial)
+#
+# Estrutura: código → BankSpec(ag_num, ag_dv, cc_num, cc_dv, nivel)
+#
+#   ag_num : dígitos esperados na agência (sem DV). None = variável (Nível 2).
+#   ag_dv  : valor fixo do DV da agência (string "0","9"…) ou None (variável).
+#            Quando ag_num e ag_dv são ambos fixos, a agência inteira é fixa
+#            (ex: Inter Ag.0001-9 → ag_num="0001", ag_dv="9").
+#   cc_num : dígitos esperados na conta (sem DC). None = variável.
+#   cc_dv  : valor fixo do DC ou None (variável).
+#   nivel  : 1 = regra específica | 2 = genérica | 3 = exceção
+#
+# Bancos com ag_num/ag_dv fixos (bancos digitais: 0001-D) são listados em
+# AG_FIXA para facilitar a verificação de igualdade.
 # ==============================
 
-# ─────────────────────────────────────────────────────────────────
-# SPECS_BANCARIOS
-# Fonte: "Regras de Protocolação e Validação Bancária" (documento oficial)
-#        + análise dos dados reais do formulário.
-#
-# Estrutura: código → (ag_digits, ag_dv_fixo, cc_digits, cc_dv_fixo, nivel)
-#
-#   ag_digits  : nº de dígitos do número da agência (sem DV). None = variável.
-#   ag_dv_fixo : valor fixo do DV da agência (ex: "0", "9") ou None (variável).
-#                "FIXO_AG" = agência inteira é fixa (ex: "0001").
-#   cc_digits  : nº de dígitos do número da conta (sem DV). None = variável.
-#   cc_dv_fixo : valor fixo do DV da conta ou None (variável).
-#   nivel      : 1=regra específica (validação completa)
-#                2=regra genérica   (validação parcial)
-#                3=exceção          (sem regra — conferência manual)
-#
-# Nota sobre o Banrisul (041): contas chegam no formato "35.051947.0-1"
-# onde ".0" é sufixo de produto (descartado). Ag tem DV de 2 dígitos (DD).
-#
-# "ag_dv_fixo = None" significa DV variável (qualquer dígito 0-9).
-# "ag_fixo"   indica agência com número fixo conforme o PDF (ex: 0001).
-# ─────────────────────────────────────────────────────────────────
+from dataclasses import dataclass
+from typing import Optional
 
-# Sentinel para indicar que a agência inteira é fixa (número + DV)
-_AG_FIXA = "AG_FIXA"
+@dataclass
+class BankSpec:
+    ag_num  : Optional[int]    # qtd. dígitos do número da agência
+    ag_dv   : Optional[str]    # DV fixo da agência ("0","9"…) ou None
+    cc_num  : Optional[int]    # qtd. dígitos do número da conta
+    cc_dv   : Optional[str]    # DV fixo da conta ou None
+    nivel   : int              # 1, 2 ou 3
+    # Quando True, o ag_num é um valor literal fixo (ex: "0001"), não um comprimento
+    ag_num_fixo : bool = False
 
-SPECS_BANCARIOS = {
-    # cód: (ag_digits, ag_dv_fixo, cc_digits, cc_dv_fixo, nivel)
-    # ── Nível 1: regra específica do PDF ─────────────────────────
-    "001": (4, None,    8, None,   1),  # BB          Ag:DDDD-D  CC:DDDDDDDD-D
-    "033": (4, "0",     8, None,   1),  # Santander   Ag:DDDD-0  CC:DDDDDDDD-D
-    "041": (4, None,    9, None,   1),  # Banrisul    Ag:DDDD-DD CC:DDDDDDDDD-D (DV ag = 2 chars)
-    "070": (4, "0",     6, None,   1),  # BRB         Ag:DDDD-0  CC:DDDDDD-D
-    "077": (4, "9",     7, None,   1),  # Inter       Ag:0001-9  CC:DDDDDDD-D  (ag fixa 0001)
-    "104": (4, "0",     8, None,   1),  # Caixa       Ag:DDDD-0  CC:DDDDDDDD-D
-    "133": (4, "0",     7, None,   1),  # Cresol      Ag:DDDD-0  CC:DDDDDDD-D
-    "136": (4, "0",     7, None,   1),  # Unicred     Ag:DDDD-0  CC:DDDDDDD-D
-    "197": (4, "0",     8, None,   1),  # Stone       Ag:0001-0  CC:DDDDDDDD-D (ag fixa 0001)
-    "208": (4, "0",     8, None,   1),  # BTG         Ag:DDDD-0  CC:DDDDDDDD-D
-    "212": (4, "0",     8, None,   1),  # Original    Ag:0001-0  CC:DDDDDDDD-D (ag fixa 0001)
-    "237": (4, None,    7, None,   1),  # Bradesco    Ag:DDDD-D  CC:DDDDDDD-D
-    "260": (4, "0",     8, None,   1),  # Nubank      Ag:0001-0  CC:DDDDDDDD-D (ag fixa 0001)
-    "290": (4, "0",     8, None,   1),  # PagBank     Ag:0001-0  CC:DDDDDDDD-D (ag fixa 0001)
-    "318": (4, "0",     7, None,   1),  # BMG         Ag:DDDD-0  CC:DDDDDDD-D
-    "323": (4, "0",     8, None,   1),  # MercadoPago Ag:0001-0  CC:DDDDDDDD-D (ag fixa 0001)
-    "336": (4, "0",     6, None,   1),  # C6          Ag:0001-0  CC:DDDDDD-D   (ag fixa 0001)
-    "341": (4, "0",     5, None,   1),  # Itaú        Ag:DDDD-0  CC:DDDDD-D
-    "348": (4, "0",     8, None,   1),  # XP          Ag:0001-0  CC:DDDDDDDD-D (ag fixa 0001)
-    "364": (4, "0",     8, None,   1),  # Efí         Ag:0001-0  CC:DDDDDDDD-D (ag fixa 0001)
-    "380": (4, "0",     8, None,   1),  # PicPay      Ag:0001-0  CC:DDDDDDDD-D (ag fixa 0001)
-    "422": (4, "0",     7, None,   1),  # Safra       Ag:DDDD-0  CC:DDDDDDD-D
-    "623": (4, "0",     8, None,   1),  # PAN         Ag:DDDD-0  CC:DDDDDDDD-D
-    "748": (4, "0",     7, None,   1),  # Sicredi     Ag:DDDD-0  CC:DDDDDDD-D
-    "756": (4, "0",     7, None,   1),  # Sicoob      Ag:DDDD-0  CC:DDDDDDD-D
-    # ── Nível 2: bancos conhecidos sem regra consolidada no PDF ──
-    "004": (4, None,    8, None,   2),  # BNB
-    "037": (4, None,    9, None,   2),  # Banpará
-    "047": (4, None,    9, None,   2),  # Banese
-    "084": (4, None,    8, None,   2),  # Uniprime
-    "085": (4, None,    8, None,   2),  # Cecred
-    "197": (4, "0",     8, None,   1),  # Stone (já em N1, mantido por completude)
-    "290": (4, "0",     8, None,   1),  # PagBank (idem)
-    "318": (4, "0",     7, None,   1),  # BMG (idem)
-    "633": (4, None,    8, None,   2),  # Banco Rendimento
-    "637": (4, None,    8, None,   2),  # Sofisa
-    "655": (4, None,    8, None,   2),  # Votorantim
-    "707": (4, None,    8, None,   2),  # Daycoval
-    "735": (4, None,    8, None,   2),  # Neon
-    "739": (4, None,    8, None,   2),  # Cetelem
-    "746": (4, None,    8, None,   2),  # Modal
+SPECS = {
+    # ── Nível 1 ──────────────────────────────────────────────────────────────
+    "001": BankSpec(4, None, 8, None, 1),          # BB          Ag:DDDD-D  CC:DDDDDDDD-D
+    "033": BankSpec(4, "0",  8, None, 1),          # Santander   Ag:DDDD-0  CC:DDDDDDDD-D
+    "041": BankSpec(4, None, 9, None, 1),          # Banrisul    Ag:DDDD-D  CC:DDDDDDDDD-D
+    "070": BankSpec(4, "0",  6, None, 1),          # BRB         Ag:DDDD-0  CC:DDDDDD-D
+    "077": BankSpec(4, "9",  7, None, 1, True),    # Inter       Ag:0001-9  CC:DDDDDDD-D
+    "104": BankSpec(4, "0",  8, None, 1),          # Caixa       Ag:DDDD-0  CC:DDDDDDDD-D
+    "133": BankSpec(4, "0",  7, None, 1),          # Cresol      Ag:DDDD-0  CC:DDDDDDD-D
+    "136": BankSpec(4, "0",  7, None, 1),          # Unicred     Ag:DDDD-0  CC:DDDDDDD-D
+    "197": BankSpec(4, "0",  8, None, 1, True),    # Stone       Ag:0001-0  CC:DDDDDDDD-D
+    "208": BankSpec(4, "0",  8, None, 1),          # BTG         Ag:DDDD-0  CC:DDDDDDDD-D
+    "212": BankSpec(4, "0",  8, None, 1, True),    # Original    Ag:0001-0  CC:DDDDDDDD-D
+    "237": BankSpec(4, None, 7, None, 1),          # Bradesco    Ag:DDDD-D  CC:DDDDDDD-D
+    "260": BankSpec(4, "0",  8, None, 1, True),    # Nubank      Ag:0001-0  CC:DDDDDDDD-D
+    "290": BankSpec(4, "0",  8, None, 1, True),    # PagBank     Ag:0001-0  CC:DDDDDDDD-D
+    "318": BankSpec(4, "0",  7, None, 1),          # BMG         Ag:DDDD-0  CC:DDDDDDD-D
+    "323": BankSpec(4, "0",  8, None, 1, True),    # MercadoPago Ag:0001-0  CC:DDDDDDDD-D
+    "336": BankSpec(4, "0",  6, None, 1, True),    # C6          Ag:0001-0  CC:DDDDDD-D
+    "341": BankSpec(4, "0",  5, None, 1),          # Itaú        Ag:DDDD-0  CC:DDDDD-D
+    "348": BankSpec(4, "0",  8, None, 1, True),    # XP          Ag:0001-0  CC:DDDDDDDD-D
+    "364": BankSpec(4, "0",  8, None, 1, True),    # Efí         Ag:0001-0  CC:DDDDDDDD-D
+    "380": BankSpec(4, "0",  8, None, 1, True),    # PicPay      Ag:0001-0  CC:DDDDDDDD-D
+    "422": BankSpec(4, "0",  7, None, 1),          # Safra       Ag:DDDD-0  CC:DDDDDDD-D
+    "623": BankSpec(4, "0",  8, None, 1),          # PAN         Ag:DDDD-0  CC:DDDDDDDD-D
+    "748": BankSpec(4, "0",  7, None, 1),          # Sicredi     Ag:DDDD-0  CC:DDDDDDD-D
+    "756": BankSpec(4, "0",  7, None, 1),          # Sicoob      Ag:DDDD-0  CC:DDDDDDD-D
+    # ── Nível 2 ──────────────────────────────────────────────────────────────
+    "004": BankSpec(None, None, None, None, 2),    # BNB
+    "037": BankSpec(None, None, None, None, 2),    # Banpará
+    "047": BankSpec(None, None, None, None, 2),    # Banese
+    "084": BankSpec(None, None, None, None, 2),    # Uniprime
+    "085": BankSpec(None, None, None, None, 2),    # Cecred
+    "633": BankSpec(None, None, None, None, 2),    # Rendimento
+    "637": BankSpec(None, None, None, None, 2),    # Sofisa
+    "655": BankSpec(None, None, None, None, 2),    # Votorantim
+    "707": BankSpec(None, None, None, None, 2),    # Daycoval
+    "735": BankSpec(None, None, None, None, 2),    # Neon
+    "739": BankSpec(None, None, None, None, 2),    # Cetelem
+    "746": BankSpec(None, None, None, None, 2),    # Modal
 }
 
-# Agências fixas por banco (conforme PDF: 0001 para bancos digitais)
-# Comprimento do DV da agência quando não é fixo e pode ter mais de 1 dígito.
-# Ausente = 1 dígito (padrão).
-AG_DV_LEN = {
-    "041": 2,   # Banrisul: Ag. DDDD-DD
+# Valor literal fixo do número da agência para bancos digitais
+AG_NUM_FIXO = {
+    cod: "0001"
+    for cod, sp in SPECS.items() if sp.ag_num_fixo
 }
 
+# ──────────────────────────────────────────────────────────────────────────────
+# FILL LARANJA — marcador para células com inconsistência
+# ──────────────────────────────────────────────────────────────────────────────
+FILL_LARANJA = PatternFill(start_color="FFA500", end_color="FFA500", fill_type="solid")
 
-AG_FIXA = {
-    "077": ("0001", "9"),   # Inter
-    "197": ("0001", "0"),   # Stone
-    "212": ("0001", "0"),   # Original
-    "260": ("0001", "0"),   # Nubank
-    "290": ("0001", "0"),   # PagBank
-    "323": ("0001", "0"),   # Mercado Pago
-    "336": ("0001", "0"),   # C6
-    "348": ("0001", "0"),   # XP
-    "364": ("0001", "0"),   # Efí
-    "380": ("0001", "0"),   # PicPay
-}
+# ──────────────────────────────────────────────────────────────────────────────
+# RESULTADO DE CAMPO BANCÁRIO
+# Cada campo (AG, DA, CC, DC) retorna um FieldResult.
+#
+#   valor    : string final padronizada (ou "" se ausente/inválida)
+#   laranja  : True → célula deve ter fill laranja na planilha de saída
+#   problemas: lista de strings descritivas para a coluna Exceções
+# ──────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class FieldResult:
+    valor    : str
+    laranja  : bool
+    problemas: list
+
+    def ok(self): return not self.problemas
 
 
-def validar_bancario(ag_num, ag_dv, cc_num, cc_dv, codigo_banco):
+def _so_nums_hifens(s):
+    """Remove tudo exceto dígitos e hífens. Retorna (limpo, tinha_outros)."""
+    limpo = re.sub(r'[^\d\-]', '', s)
+    tinha_outros = limpo != s
+    return limpo, tinha_outros
+
+
+def _so_nums_hifens_e_x(s):
+    """Remove tudo exceto dígitos, hífens e a letra X (maiúscula/minúscula).
+    Usado para DG e DC, onde X é um dígito verificador válido.
+    Normaliza X para maiúsculo. Retorna (limpo, tinha_outros)."""
+    limpo = re.sub(r'[^\dXx\-]', '', s).upper()
+    tinha_outros = re.sub(r'[^\dXx\-]', '', s) != s
+    return limpo, tinha_outros
+
+
+def _so_nums(s):
+    """Remove tudo exceto dígitos."""
+    return re.sub(r'\D', '', s)
+
+
+def _so_nums_e_x(s):
+    """Remove tudo exceto dígitos e a letra X (maiúscula ou minúscula).
+    Usado para extrair DV de campos que podem conter 'X' como dígito verificador.
+    Normaliza X para maiúsculo."""
+    return re.sub(r'[^\dXx]', '', s).upper()
+
+
+def _vazio(raw):
+    """True se a string não contém nenhum dígito."""
+    return not any(c.isdigit() for c in (raw or ""))
+
+def _vazio_dv(raw):
+    """True se a string não contém nenhum dígito nem X (para DG/DA e DC,
+    onde X é um dígito verificador válido)."""
+    s = (raw or "").upper()
+    return not any(c.isdigit() or c == 'X' for c in s)
+
+
+def _split_hifen(s):
     """
-    Aplica as regras de protocolação bancária conforme o documento oficial.
+    Divide em (antes, depois) no ÚLTIMO hífen.
+    Retorna (None, None) se não houver hífen.
+    """
+    if '-' not in s:
+        return None, None
+    idx = s.rfind('-')
+    return s[:idx], s[idx+1:]
+
+
+def _dv_valido(s):
+    """
+    Retorna True se `s` é um dígito verificador válido para DG ou DC:
+    exatamente 1 caractere numérico (0-9) OU a letra X (maiúscula ou minúscula),
+    conforme especificado para os campos DG e DC.
+    """
+    if not s:
+        return False
+    return len(s) == 1 and (s.isdigit() or s.upper() == 'X')
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# TRATAMENTO DE AG (Agência)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def tratar_ag(ag_raw, da_raw, spec):
+    """
+    Aplica o fluxo completo para AG e, quando há hífen em AG, também resolve DA.
+    Retorna (res_ag: FieldResult, res_da_override: FieldResult|None).
+    res_da_override != None significa que DA foi resolvido aqui (pular tratar_da).
+    """
+    ag_raw = str(ag_raw or "").strip()
+    da_raw = str(da_raw or "").strip()
+
+    # ── 5. Dados ausentes ────────────────────────────────────────────────────
+    if _vazio(ag_raw):
+        return (
+            FieldResult("", True, ["AG: ausência de dados tratáveis"]),
+            None
+        )
+
+    # Bancos com agência inteiramente fixa (número literal "0001")
+    ag_num_fixo_val = AG_NUM_FIXO.get(spec and spec.ag_num_fixo and "xxx" or "")
+    # Recuperar corretamente:
+    ag_num_fixo_val = None
+    if spec and spec.ag_num_fixo and spec.ag_num is not None:
+        ag_num_fixo_val = "0001"   # todos os bancos digitais usam 0001
+
+    # ── Agência com valor FIXO (número inteiro) ──────────────────────────────
+    if ag_num_fixo_val is not None:
+        nums_ag = _so_nums(ag_raw)
+        # Comparar apenas os dígitos do número informado (ignorar hífen e DV)
+        # ex: "0001-9" → nums antes do hífen = "0001"
+        antes, depois = _split_hifen(nums_ag) if '-' in ag_raw else (nums_ag, None)
+        num_ag_informado = _so_nums(antes) if antes is not None else _so_nums(ag_raw.split('-')[0])
+
+        if num_ag_informado == ag_num_fixo_val:
+            res_ag = FieldResult(ag_num_fixo_val, False, [])
+        else:
+            res_ag = FieldResult(
+                ag_num_fixo_val, True,
+                [f"AG: agência informada '{num_ag_informado}' difere do valor fixo "
+                 f"'{ag_num_fixo_val}' — corrigido automaticamente"]
+            )
+
+        # DA também é fixo para esses bancos — retornar como override
+        da_fixo = spec.ag_dv
+        da_num_bruto = _so_nums_e_x(ag_raw.split('-')[-1]) if '-' in ag_raw else _so_nums_e_x(da_raw)
+        if da_num_bruto == da_fixo:
+            res_da = FieldResult(da_fixo, False, [])
+        else:
+            motivo = (f"DA: dígito informado '{da_num_bruto}' difere do valor fixo "
+                      f"'{da_fixo}' — corrigido automaticamente")
+            res_da = FieldResult(da_fixo, True, [motivo])
+        return res_ag, res_da
+
+    # ── Agência com comprimento variável (Nível 2) ───────────────────────────
+    if spec is None or spec.ag_num is None:
+        limpo, tinha_outros = _so_nums_hifens(ag_raw)
+        problemas = []
+        laranja = False
+        if tinha_outros:
+            problemas.append(f"AG: caracteres inválidos removidos de '{ag_raw}'")
+            laranja = True
+
+        if '-' in ag_raw:
+            # Split no raw para preservar X no DV
+            antes_h_raw, depois_h_raw = _split_hifen(ag_raw)
+            num = _so_nums(re.sub(r'[^\d]', '', antes_h_raw))
+            # Sem convenção: aceitar como está
+            res_ag = FieldResult(num, laranja, problemas)
+            # DA override: usar depois do hífen
+            da_inline = _so_nums_e_x(depois_h_raw) if depois_h_raw else ""
+            da_fornecido = _so_nums_e_x(da_raw)
+            if da_inline and da_fornecido:
+                if da_inline == da_fornecido:
+                    res_da = FieldResult(da_inline, False, [])
+                else:
+                    res_da = FieldResult(
+                        da_inline, True,
+                        [f"DA: dígito no hífen de AG ('{da_inline}') difere do DA "
+                         f"fornecido ('{da_fornecido}') — usado o do hífen"]
+                    )
+            elif da_inline:
+                res_da = FieldResult(da_inline, False, [])
+            elif da_fornecido:
+                res_da = None   # deixar tratar_da cuidar
+            else:
+                res_da = FieldResult("", True, ["DA: ausência de dados tratáveis"])
+            return res_ag, res_da
+        else:
+            num = _so_nums(limpo)
+            return FieldResult(num, laranja, problemas), None
+
+    # ── Agência com convenção específica (Nível 1) ───────────────────────────
+    limpo, tinha_outros = _so_nums_hifens(ag_raw)
+    problemas = []
+    laranja = False
+    if tinha_outros:
+        problemas.append(f"AG: caracteres inválidos removidos de '{ag_raw}'")
+        laranja = True
+
+    ag_digits = spec.ag_num   # comprimento esperado do número da agência
+    da_fixo   = spec.ag_dv    # DV fixo ou None
+
+    res_da_override = None
+
+    if '-' in ag_raw:
+        # Fazer split no ag_raw original para preservar X no sufixo (DV)
+        antes_h_raw, depois_h_raw = _split_hifen(ag_raw)
+        num_ag = _so_nums(re.sub(r'[^\d]', '', antes_h_raw))
+        da_hifen = _so_nums_e_x(depois_h_raw) if depois_h_raw else ""
+        da_fornecido = _so_nums_e_x(da_raw)
+
+        # Validar comprimento do número antes do hífen
+        if len(num_ag) < ag_digits:
+            num_ag = num_ag.zfill(ag_digits)
+        elif len(num_ag) > ag_digits:
+            problemas.append(
+                f"AG: número da agência com {len(num_ag)} dígito(s) "
+                f"(esperado {ag_digits}): '{num_ag}'"
+            )
+            laranja = True
+
+        # Resolver DA usando os dois candidatos (hífen e coluna DA)
+        da_hifen_valido   = _dv_valido(da_hifen)  if da_fixo is None else (da_hifen == da_fixo)
+        da_fornec_valido  = _dv_valido(da_fornecido) if da_fixo is None else (da_fornecido == da_fixo)
+
+        if da_hifen == da_fornecido or (not da_fornecido and da_hifen):
+            # Iguais, ou só hífen disponível
+            if da_hifen_valido:
+                res_da_override = FieldResult(da_hifen, False, [])
+            else:
+                res_da_override = FieldResult(
+                    da_hifen, True,
+                    [f"DA: dígito '{da_hifen}' não segue a convenção "
+                     + (f"(esperado '{da_fixo}')" if da_fixo else "(1 dígito esperado)")]
+                )
+        elif da_hifen_valido and not da_fornec_valido:
+            res_da_override = FieldResult(
+                da_hifen, True,
+                [f"DA: usado dígito do hífen de AG ('{da_hifen}'); "
+                 f"DA fornecido ('{da_fornecido}') não segue a convenção"]
+            )
+        elif da_fornec_valido and not da_hifen_valido:
+            res_da_override = FieldResult(
+                da_fornecido, True,
+                [f"DA: usado DA fornecido ('{da_fornecido}'); "
+                 f"dígito do hífen de AG ('{da_hifen}') não segue a convenção"]
+            )
+        elif da_hifen_valido and da_fornec_valido:
+            # Ambos válidos mas diferentes → priorizar hífen (contíguo ao número)
+            res_da_override = FieldResult(
+                da_hifen, True,
+                [f"DA: conflito — hífen de AG ('{da_hifen}') e DA fornecido "
+                 f"('{da_fornecido}') diferem; ambos válidos — usado o do hífen"]
+            )
+        else:
+            # Nenhum segue a convenção: usar DA fornecido, reportar
+            dv_final = da_fornecido or da_hifen
+            res_da_override = FieldResult(
+                dv_final, True,
+                [f"DA: nenhum dos dígitos disponíveis (hífen='{da_hifen}', "
+                 f"fornecido='{da_fornecido}') segue a convenção — copiado como está"]
+            )
+
+        laranja = laranja or bool(problemas)
+        return FieldResult(num_ag, laranja, problemas), res_da_override
+
+    else:
+        # Sem hífen em AG
+        num_ag = _so_nums(limpo)
+        if len(num_ag) < ag_digits:
+            num_ag = num_ag.zfill(ag_digits)
+        elif len(num_ag) > ag_digits:
+            problemas.append(
+                f"AG: número da agência com {len(num_ag)} dígito(s) "
+                f"(esperado {ag_digits}): '{num_ag}'"
+            )
+            laranja = True
+        return FieldResult(num_ag, laranja, problemas), None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# TRATAMENTO DE DA (Dígito da Agência)
+# Chamado apenas quando tratar_ag NÃO retornou res_da_override.
+# ──────────────────────────────────────────────────────────────────────────────
+
+def tratar_da(da_raw, ag_num_tratado, spec):
+    """
+    Retorna FieldResult para o DA.
+    ag_num_tratado: número da agência já padronizado (para comparação com hífen).
+    """
+    da_raw = str(da_raw or "").strip()
+
+    if _vazio_dv(da_raw):
+        return FieldResult("", True, ["DA: ausência de dados tratáveis"])
+
+    da_fixo = spec.ag_dv if spec else None
+
+    # ── DV fixo ──────────────────────────────────────────────────────────────
+    if da_fixo is not None:
+        da_nums = _so_nums_e_x(da_raw)
+        # Se houver hífen, o split já foi tratado em tratar_ag; aqui consideramos
+        # só o valor puro da coluna DA.
+        if '-' in da_raw:
+            antes_h, depois_h = _split_hifen(da_raw)
+            num_antes = _so_nums(antes_h)
+            da_depois = _so_nums_e_x(depois_h) if depois_h else ""
+            if num_antes == ag_num_tratado:
+                dv_cand = da_depois
+            else:
+                dv_cand = da_depois
+                problemas_extra = [f"DA: parte antes do hífen ('{num_antes}') "
+                                   f"difere da AG tratada ('{ag_num_tratado}') — dado suspeito"]
+            dv_cand_valido = (dv_cand == da_fixo)
+            if dv_cand_valido:
+                return FieldResult(dv_cand, False, getattr(locals(),'problemas_extra',[]))
+            else:
+                ps = getattr(locals(),'problemas_extra',[])
+                ps.append(f"DA: dígito '{dv_cand}' difere do valor fixo '{da_fixo}' — corrigido")
+                return FieldResult(da_fixo, True, ps)
+        else:
+            if da_nums == da_fixo:
+                return FieldResult(da_fixo, False, [])
+            else:
+                return FieldResult(
+                    da_fixo, True,
+                    [f"DA: dígito informado '{da_nums}' difere do valor fixo "
+                     f"'{da_fixo}' — corrigido automaticamente"]
+                )
+
+    # ── DV variável ───────────────────────────────────────────────────────────
+    limpo, tinha_outros = _so_nums_hifens_e_x(re.sub(r'\.', '', da_raw))
+    # X já está preservado; remover pontos já foi feito acima
+    limpo_sem_pontos = limpo
+    problemas = []
+    laranja = False
+    if tinha_outros:
+        problemas.append(f"DA: caracteres inválidos removidos de '{da_raw}'")
+        laranja = True
+
+    if '-' in limpo_sem_pontos:
+        antes_h, depois_h = _split_hifen(limpo_sem_pontos)
+        num_antes = _so_nums(antes_h)
+        da_depois = _so_nums_e_x(depois_h) if depois_h else ""
+
+        if num_antes == ag_num_tratado or num_antes == ag_num_tratado.lstrip("0"):
+            # Antes bate com AG
+            if _dv_valido(da_depois):
+                return FieldResult(da_depois.upper(), laranja, problemas)
+            else:
+                # Não segue convenção → últimos N dígitos/X (N=1)
+                da_trunc = da_depois[-1].upper() if da_depois else ""
+                problemas.append(
+                    f"DA: dígito após hífen ('{da_depois}') não segue a convenção "
+                    f"(1 dígito ou X esperado) — truncado para '{da_trunc}'"
+                )
+                return FieldResult(da_trunc, True, problemas)
+        else:
+            problemas.append(
+                f"DA: parte antes do hífen ('{num_antes}') difere da AG "
+                f"('{ag_num_tratado}') — dado suspeito"
+            )
+            if _dv_valido(da_depois):
+                return FieldResult(da_depois.upper(), True, problemas)
+            else:
+                # Não segue convenção → últimos N dígitos/X (N=1)
+                da_trunc = da_depois[-1].upper() if da_depois else ""
+                problemas.append(
+                    f"DA: dígito após hífen ('{da_depois}') não segue a convenção "
+                    f"(1 dígito ou X esperado) — truncado para '{da_trunc}'"
+                )
+                return FieldResult(da_trunc, True, problemas)
+    else:
+        # Para DG/DA: aceitar dígitos 0-9 ou X
+        # Recalcular preservando X que _so_nums_hifens descartou
+        da_bruto = _so_nums_e_x(re.sub(r'\.', '', da_raw))
+        if _dv_valido(da_bruto):
+            return FieldResult(da_bruto, laranja, problemas)
+        else:
+            # Mais de 1 char → manter apenas o último (começando do final)
+            da_truncado = da_bruto[-1] if da_bruto else ""
+            problemas.append(
+                f"DA: valor '{da_bruto}' não segue a convenção "
+                f"(1 dígito ou X esperado) — truncado para '{da_truncado}'"
+            )
+            return FieldResult(da_truncado, True, problemas)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# TRATAMENTO DE CC (Conta Corrente) e DC (Dígito da Conta)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def tratar_cc_dc(cc_raw, dc_raw, spec):
+    """
+    Aplica o fluxo completo para CC e DC.
+    Retorna (res_cc: FieldResult, res_dc: FieldResult).
+    """
+    cc_raw = str(cc_raw or "").strip()
+    dc_raw = str(dc_raw or "").strip()
+
+    cc_digits = spec.cc_num if spec else None
+    dc_fixo   = spec.cc_dv  if spec else None
+
+    # ── 5. Dados ausentes ────────────────────────────────────────────────────
+    cc_vazio = _vazio(cc_raw)
+    dc_vazio = _vazio_dv(dc_raw)   # DC pode ser 'X' como dígito verificador
+
+    if cc_vazio:
+        res_cc = FieldResult("", True, ["CC: ausência de dados tratáveis"])
+        if dc_vazio:
+            res_dc = FieldResult("", True, ["DC: ausência de dados tratáveis"])
+        else:
+            res_dc = _tratar_dc_puro(dc_raw, "", spec)
+        return res_cc, res_dc
+
+    # Remover pontos (Banrisul) — excluir pontos no pré-processamento de CC
+    cc_sem_pontos = re.sub(r'\.', '', cc_raw)
+
+    limpo_cc, tinha_outros_cc = _so_nums_hifens(cc_sem_pontos)
+    problemas_cc = []
+    laranja_cc   = False
+    if tinha_outros_cc:
+        problemas_cc.append(f"CC: caracteres inválidos removidos de '{cc_raw}'")
+        laranja_cc = True
+
+    # ── Nível 2: sem convenção específica ────────────────────────────────────
+    if cc_digits is None:
+        if '-' in cc_sem_pontos:
+            antes_h_raw, depois_h_raw = _split_hifen(cc_sem_pontos)
+            num_cc = _so_nums(antes_h_raw)
+            dc_hifen = _so_nums_e_x(depois_h_raw) if depois_h_raw else ""
+            res_cc = FieldResult(num_cc, laranja_cc, problemas_cc)
+            res_dc = _resolver_dc_com_hifen(dc_hifen, dc_raw, num_cc, spec)
+        else:
+            num_cc = _so_nums(limpo_cc)
+            res_cc = FieldResult(num_cc, laranja_cc, problemas_cc)
+            if dc_vazio:
+                res_dc = FieldResult("", True, ["DC: ausência de dados tratáveis"])
+            else:
+                res_dc = _tratar_dc_puro(dc_raw, num_cc, spec)
+        return res_cc, res_dc
+
+    # ── Nível 1: convenção específica ─────────────────────────────────────────
+    if '-' in cc_sem_pontos:
+        antes_h_raw, depois_h_raw = _split_hifen(cc_sem_pontos)
+        num_cc   = _so_nums(antes_h_raw)
+        dc_hifen = _so_nums_e_x(depois_h_raw) if depois_h_raw else ""
+
+        # Validar comprimento do número antes do hífen
+        if len(num_cc) < cc_digits:
+            num_cc = num_cc.zfill(cc_digits)
+        elif len(num_cc) > cc_digits:
+            problemas_cc.append(
+                f"CC: número da conta com {len(num_cc)} dígito(s) "
+                f"(esperado {cc_digits}): '{num_cc}'"
+            )
+            laranja_cc = True
+
+        res_cc = FieldResult(num_cc, laranja_cc, problemas_cc)
+        res_dc = _resolver_dc_com_hifen(dc_hifen, dc_raw, num_cc, spec)
+        return res_cc, res_dc
+
+    else:
+        # Sem hífen na CC
+        num_cc = _so_nums(limpo_cc)
+
+        if len(num_cc) == cc_digits:
+            # Comprimento exato
+            res_cc = FieldResult(num_cc, laranja_cc, problemas_cc)
+            if dc_vazio:
+                res_dc = FieldResult("", True, ["DC: ausência de dados tratáveis"])
+            else:
+                res_dc = _tratar_dc_puro(dc_raw, num_cc, spec)
+            return res_cc, res_dc
+
+        elif len(num_cc) < cc_digits:
+            # CC curta — tentar emenda com DC
+            dc_nums = _so_nums_e_x(re.sub(r'\.', '', dc_raw))
+            total = num_cc + dc_nums
+            if len(total) == cc_digits + 1:
+                # Emenda possível: dividir conforme convenção
+                cc_novo = total[:cc_digits]
+                dc_novo = total[cc_digits:]
+                problemas_cc.append(
+                    f"CC: conta curta + DC emendados — CC='{cc_novo}', DC='{dc_novo}' — confirmar"
+                )
+                res_cc = FieldResult(cc_novo, True, problemas_cc)
+                res_dc = FieldResult(dc_novo, True,
+                                     ["DC: dígito obtido por emenda com CC — confirmar"])
+            else:
+                # Emenda impossível — zfill
+                num_cc_pad = num_cc.zfill(cc_digits)
+                problemas_cc.append(
+                    f"CC: conta curta ({len(num_cc)}d, esperado {cc_digits}d) — "
+                    f"zeros adicionados à esquerda"
+                )
+                res_cc = FieldResult(num_cc_pad, True, problemas_cc)
+                if dc_vazio:
+                    res_dc = FieldResult("", True, ["DC: ausência de dados tratáveis"])
+                else:
+                    res_dc = _tratar_dc_puro(dc_raw, num_cc_pad, spec)
+            return res_cc, res_dc
+
+        else:
+            # CC longa — verificar se o excedente pode ser o DC
+            excedente_len = len(num_cc) - cc_digits
+            dc_nums = _so_nums_e_x(re.sub(r'\.', '', dc_raw)) if not dc_vazio else ""
+            dc_fixo_local = spec.cc_dv if spec else None
+            dc_esperado_len = 1   # convenção: 1 dígito para DC
+
+            if excedente_len == dc_esperado_len:
+                excedente = num_cc[-excedente_len:]
+                cc_sem_exc = num_cc[:-excedente_len]
+                if excedente == dc_nums:
+                    # Excedente bate com DC informado → tratar como CC+DC emendados
+                    problemas_cc.append(
+                        f"CC: conta com {len(num_cc)}d contém DC embutido — "
+                        f"CC='{cc_sem_exc}', DC='{excedente}' — confirmar"
+                    )
+                    res_cc = FieldResult(cc_sem_exc, True, problemas_cc)
+                    res_dc = FieldResult(excedente, True,
+                                         ["DC: dígito extraído do excedente de CC — confirmar"])
+                else:
+                    # Excedente difere do DC informado → retirar excedente e reportar
+                    problemas_cc.append(
+                        f"CC: conta com {len(num_cc)}d (esperado {cc_digits}d) — "
+                        f"excedente '{excedente}' removido (DC informado='{dc_nums}')"
+                    )
+                    res_cc = FieldResult(cc_sem_exc, True, problemas_cc)
+                    res_dc = _tratar_dc_puro(dc_raw, cc_sem_exc, spec) if not dc_vazio else FieldResult("", True, ["DC: ausência de dados tratáveis"])
+            else:
+                # Excedente com comprimento diferente do esperado → remover e reportar
+                cc_sem_exc = num_cc[:cc_digits]
+                problemas_cc.append(
+                    f"CC: conta com {len(num_cc)}d (esperado {cc_digits}d) — "
+                    f"truncado para '{cc_sem_exc}'"
+                )
+                res_cc = FieldResult(cc_sem_exc, True, problemas_cc)
+                res_dc = _tratar_dc_puro(dc_raw, cc_sem_exc, spec) if not dc_vazio else FieldResult("", True, ["DC: ausência de dados tratáveis"])
+            return res_cc, res_dc
+
+
+def _resolver_dc_com_hifen(dc_hifen, dc_raw, cc_num_tratado, spec):
+    """
+    Resolve DC quando a CC tinha hífen.
+    dc_hifen: string após o hífen em CC (só dígitos).
+    dc_raw: valor bruto da coluna DC.
+    """
+    dc_fixo  = spec.cc_dv if spec else None
+    dc_fornecido = _so_nums_e_x(re.sub(r'\.', '', str(dc_raw or "")))
+
+    dc_hifen_valido  = _dv_valido(dc_hifen)  if dc_fixo is None else (dc_hifen == dc_fixo)
+    dc_fornec_valido = _dv_valido(dc_fornecido) if dc_fixo is None else (dc_fornecido == dc_fixo)
+
+    # Helper: truncar para últimos N dígitos quando não segue convenção
+    def _dc_truncar(val, dc_fixo_local):
+        if dc_fixo_local is not None:
+            return dc_fixo_local   # fixo: já corrigido antes de chegar aqui
+        return val[-1] if val else ""
+
+    if dc_hifen == dc_fornecido or (dc_hifen and not dc_fornecido):
+        if dc_hifen_valido:
+            return FieldResult(dc_hifen, False, [])
+        else:
+            dc_t = _dc_truncar(dc_hifen, dc_fixo)
+            return FieldResult(
+                dc_t, True,
+                [f"DC: dígito '{dc_hifen}' não segue a convenção"
+                 + (f" (esperado '{dc_fixo}')" if dc_fixo else "")
+                 + (f" — truncado para '{dc_t}'" if dc_t != dc_hifen else "")]
+            )
+    elif dc_hifen_valido and not dc_fornec_valido:
+        return FieldResult(
+            dc_hifen, True,
+            [f"DC: usado dígito do hífen de CC ('{dc_hifen}'); "
+             f"DC fornecido ('{dc_fornecido}') não segue a convenção"]
+        )
+    elif dc_fornec_valido and not dc_hifen_valido:
+        return FieldResult(
+            dc_fornecido, True,
+            [f"DC: usado DC fornecido ('{dc_fornecido}'); "
+             f"dígito do hífen de CC ('{dc_hifen}') não segue a convenção"]
+        )
+    elif dc_hifen_valido and dc_fornec_valido:
+        # Ambos válidos mas diferentes → priorizar hífen (contíguo ao número)
+        return FieldResult(
+            dc_hifen, True,
+            [f"DC: conflito — hífen de CC ('{dc_hifen}') e DC fornecido "
+             f"('{dc_fornecido}') diferem; ambos válidos — usado o do hífen"]
+        )
+    else:
+        # Nenhum segue a convenção → últimos N dígitos de cada candidato disponível
+        cand = dc_hifen or dc_fornecido
+        dc_t = _dc_truncar(cand, dc_fixo)
+        return FieldResult(
+            dc_t, True,
+            [f"DC: nenhum dos dígitos disponíveis (hífen='{dc_hifen}', "
+             f"fornecido='{dc_fornecido}') segue a convenção — truncado para '{dc_t}'"]
+        )
+
+
+def _tratar_dc_puro(dc_raw, cc_num_tratado, spec):
+    """
+    Trata a coluna DC isoladamente (sem hífen na CC).
+    Equivale ao fluxo '4. Para DC' completo.
+    """
+    dc_raw = str(dc_raw or "").strip()
+    if _vazio_dv(dc_raw):
+        return FieldResult("", True, ["DC: ausência de dados tratáveis"])
+
+    dc_fixo = spec.cc_dv if spec else None
+
+    # DV fixo
+    if dc_fixo is not None:
+        dc_nums = _so_nums_e_x(re.sub(r'\.', '', dc_raw))
+        if '-' in dc_raw:
+            antes_h, depois_h = _split_hifen(re.sub(r'\.', '', dc_raw))
+            num_antes = _so_nums(antes_h)
+            dc_depois = _so_nums_e_x(depois_h) if depois_h else ""
+            ps = []
+            if num_antes != cc_num_tratado and num_antes != cc_num_tratado.lstrip("0"):
+                ps.append(f"DC: parte antes do hífen ('{num_antes}') difere da CC "
+                          f"('{cc_num_tratado}') — dado suspeito")
+            if dc_depois == dc_fixo:
+                return FieldResult(dc_fixo, bool(ps), ps)
+            else:
+                ps.append(f"DC: dígito '{dc_depois}' difere do valor fixo '{dc_fixo}' — corrigido")
+                return FieldResult(dc_fixo, True, ps)
+        else:
+            if dc_nums == dc_fixo:
+                return FieldResult(dc_fixo, False, [])
+            else:
+                return FieldResult(
+                    dc_fixo, True,
+                    [f"DC: dígito informado '{dc_nums}' difere do valor fixo "
+                     f"'{dc_fixo}' — corrigido automaticamente"]
+                )
+
+    # DV variável
+    limpo, tinha_outros = _so_nums_hifens_e_x(re.sub(r'\.', '', dc_raw))
+    problemas = []
+    laranja   = False
+    if tinha_outros:
+        problemas.append(f"DC: caracteres inválidos removidos de '{dc_raw}'")
+        laranja = True
+
+    if '-' in limpo:
+        antes_h, depois_h = _split_hifen(limpo)
+        num_antes = _so_nums(antes_h)
+        dc_depois = _so_nums(depois_h) if depois_h else ""
+        if num_antes != cc_num_tratado and num_antes != cc_num_tratado.lstrip("0"):
+            problemas.append(f"DC: parte antes do hífen ('{num_antes}') difere da CC "
+                             f"('{cc_num_tratado}') — dado suspeito")
+            laranja = True
+        if _dv_valido(dc_depois):
+            return FieldResult(dc_depois.upper(), laranja, problemas)
+        else:
+            # Não segue convenção → últimos N dígitos/X (N=1)
+            dc_t = dc_depois[-1].upper() if dc_depois else ""
+            problemas.append(
+                f"DC: dígito após hífen ('{dc_depois}') não segue a convenção "
+                f"(1 dígito ou X esperado) — truncado para '{dc_t}'"
+            )
+            return FieldResult(dc_t, True, problemas)
+    else:
+        # Para DC: aceitar dígitos 0-9 ou X
+        # Recalcular preservando X que _so_nums_hifens descartou
+        dc_bruto = _so_nums_e_x(re.sub(r'\.', '', dc_raw))
+        if _dv_valido(dc_bruto):
+            return FieldResult(dc_bruto, laranja, problemas)
+        else:
+            # Não segue convenção → manter apenas o último char
+            dc_t = dc_bruto[-1] if dc_bruto else ""
+            problemas.append(
+                f"DC: valor '{dc_bruto}' não segue a convenção "
+                f"(1 dígito ou X esperado) — truncado para '{dc_t}'"
+            )
+            return FieldResult(dc_t, True, problemas)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# PONTO DE ENTRADA: tratar_dados_bancarios
+# ──────────────────────────────────────────────────────────────────────────────
+
+def tratar_dados_bancarios(ag_raw, da_raw, cc_raw, dc_raw, codigo_banco):
+    """
+    Orquestra o tratamento completo dos 4 campos bancários conforme o fluxo
+    especificado, usando as convenções do PDF oficial.
 
     Retorna:
-        ag_num_out  : número da agência padronizado
-        ag_dv_out   : DV da agência (corrigido se fixo)
-        cc_num_out  : número da conta padronizado
-        cc_dv_out   : DV da conta
-        status      : 0=sem dados, 1=validado específico, 2=validado genérico, 3=exceção
-        excecao     : string descritiva da exceção (vazia se OK)
+        ag   : str   — número da agência padronizado
+        da   : str   — dígito da agência padronizado
+        cc   : str   — número da conta padronizado
+        dc   : str   — dígito da conta padronizado
+        status : int — 0=sem dados | 1=N1 | 2=N2 | 3=exceção
+        excecao: str — descrição(ões) concatenadas (vazio se ok)
+        laranja: dict{campo: bool} — quais campos ficam laranja
+                 campos: "ag","da","cc","dc"
     """
-    # Sem dados bancários
-    if not ag_num and not cc_num:
-        return ag_num, ag_dv, cc_num, cc_dv, 0, ""
+    spec = SPECS.get(codigo_banco)
 
-    spec = SPECS_BANCARIOS.get(codigo_banco)
-
-    # ── Nível 3: banco sem regra cadastrada ──────────────────────
-    if spec is None:
-        excecao = (f"Banco {codigo_banco} sem regra de validação cadastrada — "
-                   "conferência manual necessária")
-        return ag_num, ag_dv, cc_num, cc_dv, 3, excecao
-
-    ag_digits, ag_dv_fixo, cc_digits, cc_dv_fixo, nivel = spec
-    problemas = []
-
-    # ── Agência fixa (bancos digitais) ───────────────────────────
-    ag_num_fixo, ag_dv_fixo_val = AG_FIXA.get(codigo_banco, (None, None))
-    ag_foi_sobrescrita = False
-    if ag_num_fixo:
-        # Independente do que o respondente digitou, a agência é sempre fixa
-        ag_num = ag_num_fixo
-        ag_dv  = ag_dv_fixo_val
-        ag_foi_sobrescrita = True
-
-    else:
-        # ── Validar comprimento da agência ────────────────────────
-        if ag_num and ag_digits:
-            ag_limpo = ag_num.lstrip("0") or "0"
-            ag_num = ag_limpo.zfill(ag_digits)
-            if len(ag_num) > ag_digits:
-                problemas.append(
-                    f"Agência com {len(ag_num)} dígitos (esperado {ag_digits}): '{ag_num}'"
-                )
-
-        # ── DV da agência fixo ────────────────────────────────────
-        if ag_dv_fixo is not None and nivel == 1:
-            if ag_dv and ag_dv != ag_dv_fixo:
-                problemas.append(
-                    f"DV da agência deveria ser '{ag_dv_fixo}' (informado: '{ag_dv}')"
-                )
-            ag_dv = ag_dv_fixo   # corrige para o valor fixo
+    # Sem regra cadastrada → Nível 3
+    if spec is None and codigo_banco:
+        spec_fake = BankSpec(None, None, None, None, 3)
+        msg = (f"Banco '{codigo_banco}' sem regra de validação cadastrada "
+               "— conferência manual necessária")
+        # Tratar como Nível 2 nos valores mas marcar tudo como exceção
+        res_ag, res_da_ovr = tratar_ag(ag_raw, da_raw, None)
+        if res_da_ovr is not None:
+            res_da = res_da_ovr
         else:
-            # DV variável — aplicar zfill se o banco usa DV com mais de 1 dígito
-            dv_len = AG_DV_LEN.get(codigo_banco, 1)
-            if ag_dv and dv_len > 1:
-                ag_dv = ag_dv.zfill(dv_len)
+            res_da = tratar_da(da_raw, res_ag.valor, None)
+        res_cc, res_dc = tratar_cc_dc(cc_raw, dc_raw, None)
 
-    # ── Validar e padronizar comprimento da conta ────────────────
-    if cc_num and cc_digits:
-        n_bruto = len(cc_num)
-        if n_bruto == cc_digits:
-            # Comprimento exato — zfill para garantir zeros à esquerda
-            cc_num = cc_num.zfill(cc_digits)
-        elif n_bruto == cc_digits + 1 and not cc_dv:
-            # Um dígito a mais E sem DV informado pelo respondente:
-            # inferir DV embutido no último dígito e reportar como inferência.
-            cc_dv  = cc_num[-1]   # último dígito do número bruto
-            cc_num = cc_num[:-1]  # número sem o dígito extra
-            problemas.append(
-                f"DV inferido do último dígito da conta (sem DV informado pelo respondente): "
-                f"'{cc_dv}' — confirmar"
-            )
-        elif n_bruto == cc_digits + 1 and cc_dv:
-            # Um dígito a mais E DV já informado pelo respondente:
-            # preservar DV informado, remover o excedente do número.
-            cc_num = cc_num[:-1]
-        elif n_bruto < cc_digits:
-            # Curta — zfill sem lstrip para preservar zeros significativos
-            cc_num = cc_num.zfill(cc_digits)
-        else:
-            # Mais de 1 dígito além do esperado — reportar
-            problemas.append(
-                f"Conta com {n_bruto} dígitos (esperado {cc_digits}): '{cc_num}'"
-            )
-
-    # ── DV da conta com mais algarismos que a convenção ─────────
-    # Convenção: DV sempre 1 char (exceto Banrisul=2). Se informado com mais,
-    # preservar como está e reportar — não truncar nem alterar.
-    dv_len_esperado = AG_DV_LEN.get(codigo_banco, 1)   # reutiliza o mapa de DV len
-    # Para conta, a convenção é sempre 1 char de DV (independente do banco)
-    dv_cc_len_esperado = 1
-    if cc_dv and len(cc_dv) > dv_cc_len_esperado:
-        problemas.append(
-            f"DV da conta com {len(cc_dv)} algarismo(s) (esperado {dv_cc_len_esperado}): "
-            f"'{cc_dv}' — copiado como informado"
-        )
-        # cc_dv já está preservado como informado — não alteramos
-
-    # ── Sanidade: DV não pode ser igual ao número inteiro ────────
-    # Compara sem zeros à esquerda para evitar falso-positivo
-    # Compara número significativo (sem zeros à esquerda); ignora se ambos são "0"
-    ag_sig  = ag_num.lstrip("0") if ag_num else ""
-    dv_ag_sig = ag_dv.lstrip("0") if ag_dv else ""
-    if ag_sig and dv_ag_sig and dv_ag_sig == ag_sig:
-        problemas.append(
-            f"DV da agência igual ao número da agência ('{ag_dv}') — dado suspeito"
-        )
-    cc_sig  = cc_num.lstrip("0") if cc_num else ""
-    dv_cc_sig = cc_dv.lstrip("0") if cc_dv else ""
-    if cc_sig and dv_cc_sig and dv_cc_sig == cc_sig:
-        problemas.append(
-            f"DV da conta igual ao número da conta ('{cc_dv}') — dado suspeito"
+        todos_problemas = ([msg]
+                           + res_ag.problemas + res_da.problemas
+                           + res_cc.problemas + res_dc.problemas)
+        return (
+            res_ag.valor, res_da.valor, res_cc.valor, res_dc.valor,
+            3,
+            "; ".join(todos_problemas),
+            {"ag": True, "da": True, "cc": True, "dc": True},
         )
 
-    # ── Validar se DV da conta existe quando deveria ──────────────
-    if nivel == 1 and not cc_dv and cc_num:
-        problemas.append("DV da conta não informado — verificar manualmente")
-
-    # ── Nível 2: validação parcial (sem DV fixo) ──────────────────
-    if nivel == 2:
-        ag_sig = ag_num.lstrip("0") or "0"
-        cc_sig = cc_num.lstrip("0") or "0" if cc_num else ""
-        if ag_num and (len(ag_sig) < 4 or len(ag_sig) > 6):
-            problemas.append(f"Agência fora do intervalo esperado (4-6 dígitos): '{ag_num}'")
-        if cc_num and (len(cc_sig) < 5 or len(cc_sig) > 15):
-            problemas.append(f"Conta fora do intervalo esperado (5-15 dígitos): '{cc_num}'")
-
-    # Montar string de exceção e definir status final
-    # Quando a agência foi sobrescrita pelo valor fixo, os problemas de DV
-    # de agência já foram resolvidos — não reportar como exceção.
-    if ag_foi_sobrescrita:
-        problemas = [p for p in problemas if "agência" not in p.lower() or "conta" in p.lower()]
-
-    # Avisos "suaves" (apenas DV ou DV não informado) não rebaixam para status 3
-    # "conflitante" é grave mesmo que mencione "DV"; "suspeito" idem
-    def _e_grave(p):
-        if "conflitante" in p or "suspeito" in p:
-            return True
-        return "DV" not in p and "não informado" not in p
-    problemas_graves  = [p for p in problemas if _e_grave(p)]
-    problemas_avisos  = [p for p in problemas if not _e_grave(p)]
-
-    excecao = "; ".join(problemas)
-    if problemas_graves:
-        status_final = 3
-    elif problemas_avisos:
-        status_final = nivel   # aviso registrado mas dados estruturalmente válidos
+    # ── AG e DA ──────────────────────────────────────────────────────────────
+    res_ag, res_da_ovr = tratar_ag(ag_raw, da_raw, spec)
+    if res_da_ovr is not None:
+        res_da = res_da_ovr
     else:
-        status_final = nivel
+        res_da = tratar_da(da_raw, res_ag.valor, spec)
 
-    return ag_num, ag_dv, cc_num, cc_dv, status_final, excecao
+    # ── CC e DC ──────────────────────────────────────────────────────────────
+    res_cc, res_dc = tratar_cc_dc(cc_raw, dc_raw, spec)
 
+    # ── Status ───────────────────────────────────────────────────────────────
+    todos_problemas = (res_ag.problemas + res_da.problemas
+                       + res_cc.problemas + res_dc.problemas)
 
-def separar_numero_digito(valor_bruto):
-    """
-    Separa número e dígito de agência ou conta a partir do valor bruto.
+    nivel = spec.nivel if spec else 3
+    if not todos_problemas:
+        status = nivel
+    else:
+        # Verificar se há problemas graves (que rebaixam para 3)
+        graves = [p for p in todos_problemas
+                  if not any(x in p for x in ("zeros adicionados", "confirmar",
+                                               "removidos", "ausência"))]
+        status = 3 if graves else nivel
 
-    Corte automático no delimitador explícito (hífen, barra, ponto) — o que
-    estiver à direita do último delimitador é tratado como dígito verificador.
-    Sem delimitador: retorna (numero, "") e deixa a padronização posterior
-    decidir com base no spec do banco.
-    """
-    if not valor_bruto or normalizar_texto(valor_bruto) in ("", "nan"):
-        return ("", "")
+    # Sem nenhum dado útil
+    todos_vazios = (not res_ag.valor and not res_da.valor
+                    and not res_cc.valor and not res_dc.valor)
+    if todos_vazios:
+        status = 0
 
-    valor = str(valor_bruto).strip()
-
-    # Remove lixo textual antes do número (ex: "Ag.3527-0", "AGÊNCIA 1899")
-    valor = re.sub(r'(?i)ag[eê]ncia\.?\s*', '', valor).strip()
-    valor = re.sub(r'(?i)cc?\.?\s*', '', valor).strip()
-
-    # Banrisul: formato "35.073774.0-4", "35.051947.0", "39050756.0"
-    # Estrutura: SEG1.SEG2[.SEG3][-DV]
-    # Todos os segmentos separados por ponto formam o número completo
-    # (ex: "35.073774.0" → "350737740", 9 dígitos).
-    # O DV verificador vem após hífen; se não há hífen, o ponto final pode
-    # indicar DV ausente (ex: "35.234971." → número "35234971", DV "").
-    # Detectado por: ≥1 ponto, só dígitos/pontos/hífen.
-    if '.' in valor and re.match(r'^[\d.\-]+$', valor):
-        digito = ""
-        base = valor
-        # 1. Extrai DV verificador do hífen (se houver)
-        if '-' in base:
-            base, dig_part = base.rsplit('-', 1)
-            if re.match(r'^[\dX]{1,2}$', dig_part.strip(), re.IGNORECASE):
-                digito = dig_part.strip().upper()
-        # 2. Concatena todos os segmentos como número (remove pontos e espaços)
-        numero = re.sub(r'\D', '', base)
-        if numero:
-            return (numero, digito)
-
-    # Delimitador explícito — split da DIREITA (último hífen/barra é o separador)
-    for sep in ["-", "/"]:
-        if sep in valor:
-            partes = valor.rsplit(sep, 1)
-            numero = re.sub(r'\D', '', partes[0])
-            digito = partes[1].strip().upper()
-            # Rejeita dígito com mais de 2 chars (provavelmente não é dígito)
-            if len(re.sub(r'\D', '', digito)) <= 2 and len(digito) <= 2:
-                return (numero, digito)
-            # Se o suposto dígito é longo, trata tudo como número sem dígito
-            return (re.sub(r'\D', '', valor), "")
-
-    # Sem separador: retorna apenas dígitos, sem dígito inferido
-    return (re.sub(r'\D', '', valor), "")
-
-
-def padronizar_agencia(valor_bruto, codigo_banco=""):
-    """
-    Padroniza número de agência.
-    - Corta o dígito via separar_numero_digito (hífen automático).
-    - Preenche com zeros à esquerda até o comprimento canônico do banco.
-    - Alerta se o comprimento não bate após a padronização.
-    Retorna (agencia_str, digito_str, alerta).
-    """
-    numero, digito = separar_numero_digito(valor_bruto)
-    alerta = ""
-
-    if not numero:
-        return ("", "", "Agência em branco ou ilegível")
-
-    if not re.match(r'^\d+$', numero):
-        alerta = f"Agência com caracteres não numéricos: '{numero}'"
-        numero = re.sub(r'\D', '', numero)
-
-    if digito and not re.match(r'^[\dXx]{1,2}$', digito):
-        alerta = f"Dígito de agência inválido: '{digito}'"
-        digito = ""
-
-    # Zfill e validação de comprimento são feitos em validar_bancario()
-    return (numero, digito.upper(), alerta)
-
-
-def padronizar_conta(valor_bruto, codigo_banco=""):
-    """
-    Padroniza número de conta corrente.
-    - Corta o dígito via separar_numero_digito (hífen automático).
-    - Preenche com zeros à esquerda até o comprimento canônico do banco.
-    - Alerta se o comprimento não bate após a padronização.
-    Retorna (conta_str, digito_str, alerta).
-    """
-    numero, digito = separar_numero_digito(valor_bruto)
-    alerta = ""
-
-    if not numero:
-        return ("", "", "Conta em branco ou ilegível")
-
-    if not re.match(r'^\d+$', numero):
-        alerta = f"Conta com caracteres não numéricos: '{numero}'"
-        numero = re.sub(r'\D', '', numero)
-
-    if digito and not re.match(r'^[\dXx]{1,2}$', digito):
-        alerta = f"Dígito de conta inválido: '{digito}'"
-        digito = ""
-
-    # Zfill e validação de comprimento são feitos em validar_bancario()
-    return (numero, digito.upper(), alerta)
+    return (
+        res_ag.valor,
+        res_da.valor,
+        res_cc.valor,
+        res_dc.valor,
+        status,
+        "; ".join(todos_problemas),
+        {
+            "ag": res_ag.laranja,
+            "da": res_da.laranja,
+            "cc": res_cc.laranja,
+            "dc": res_dc.laranja,
+        },
+    )
 
 
 # ==============================
+# TRATAMENTO DE E-MAIL# ==============================
 # TRATAMENTO DE E-MAIL
 # ==============================
 
@@ -1083,82 +1554,50 @@ def processar(path_alunos, path_bancarios, path_template=None):
                 log(f"Não foi possível determinar maioridade de '{nome_al}' (data ausente/inválida)", linha_planilha)
 
         # --- Dados bancários ---
-        # Escolhe o conjunto de colunas com mais campos preenchidos para esta linha
         nome_banco = codigo_banco = agencia = dig_ag = conta = dig_cc = ""
         orig_banco = orig_agencia = orig_dig_ag = orig_conta = orig_dig_cc = ""
         status_banco  = 0
         excecao_banco = ""
+        laranja_banco = {"ag": False, "da": False, "cc": False, "dc": False}
         if row_bk is not None:
             cj = _escolher_conjunto(row_bk, conjuntos_bancarios)
-            # Guarda valores originais (sem nenhum tratamento) para as colunas de auditoria
-            orig_banco   = str(row_bk.get(cj["banco"],   "")).strip() if cj["banco"]   else ""
-            orig_agencia = str(row_bk.get(cj["agencia"], "")).strip() if cj["agencia"] else ""
-            orig_dig_ag  = str(row_bk.get(cj["dig_ag"],  "")).strip() if cj["dig_ag"]  else ""
-            orig_conta   = str(row_bk.get(cj["conta"],   "")).strip() if cj["conta"]   else ""
-            orig_dig_cc  = str(row_bk.get(cj["dig_cc"],  "")).strip() if cj["dig_cc"]  else ""
-            for v in [orig_banco, orig_agencia, orig_dig_ag, orig_conta, orig_dig_cc]:
-                if v.lower() == "nan": v = ""
+            # Valores originais (sem tratamento) para as colunas de auditoria
+            def _orig(col):
+                v = str(row_bk.get(col, "")).strip() if col else ""
+                return "" if v.lower() in ("nan", "") else v
+            orig_banco   = _orig(cj["banco"])
+            orig_agencia = _orig(cj["agencia"])
+            orig_dig_ag  = _orig(cj["dig_ag"])
+            orig_conta   = _orig(cj["conta"])
+            orig_dig_cc  = _orig(cj["dig_cc"])
 
             # Banco
-            banco_raw = str(row_bk.get(cj["banco"], "")).strip() if cj["banco"] else ""
+            banco_raw = _orig(cj["banco"])
             codigo_banco, nome_banco, confianca, alerta_banco = resolver_banco(banco_raw)
             if alerta_banco:
                 log(alerta_banco, linha_planilha)
 
-            # Agência
-            ag_raw     = str(row_bk.get(cj["agencia"], "")).strip() if cj["agencia"] else ""
-            dig_ag_raw = str(row_bk.get(cj["dig_ag"],  "")).strip() if cj["dig_ag"]  else ""
+            # Valores brutos para AG, DA, CC, DC
+            ag_raw  = _orig(cj["agencia"])
+            da_raw  = _orig(cj["dig_ag"])
+            cc_raw  = _orig(cj["conta"])
+            dc_raw  = _orig(cj["dig_cc"])
 
-            agencia, dig_ag_inline, alerta_ag = padronizar_agencia(ag_raw, codigo_banco)
-            if alerta_ag:
-                log(alerta_ag, linha_planilha)
+            # ── Tratamento completo AG / DA / CC / DC ──────────────────────
+            agencia, dig_ag, conta, dig_cc, status_banco, excecao_banco, laranja_banco =                 tratar_dados_bancarios(ag_raw, da_raw, cc_raw, dc_raw, codigo_banco)
 
-            if dig_ag_raw and dig_ag_raw.lower() not in ("nan", ""):
-                dig_ag = dig_ag_raw.strip().upper()
-            elif dig_ag_inline:
-                dig_ag = dig_ag_inline
-
-            # Conta
-            cc_raw     = str(row_bk.get(cj["conta"],   "")).strip() if cj["conta"]   else ""
-            dig_cc_raw = str(row_bk.get(cj["dig_cc"],  "")).strip() if cj["dig_cc"]  else ""
-
-            conta, dig_cc_inline, alerta_cc = padronizar_conta(cc_raw, codigo_banco)
-            if alerta_cc:
-                log(alerta_cc, linha_planilha)
-            # Se a conta ficou vazia após padronização, o dígito inline também é inválido
-            if not conta:
-                dig_cc_inline = ""
-
-            if dig_cc_raw and dig_cc_raw.lower() not in ("nan", ""):
-                # O valor informado pelo respondente é soberano.
-                # Limpeza mínima: remover hífen inicial isolado ("-5" → "5")
-                # e espaços, mas preservar o conteúdo.
-                candidato = dig_cc_raw.strip().upper()
-                m_hifen = re.match(r'^-([0-9X]{1,2})$', candidato)
-                if m_hifen:
-                    dig_cc = m_hifen.group(1)          # "-5" → "5"
-                else:
-                    dig_cc = candidato                  # copiar como está
-            elif dig_cc_inline:
-                # Coluna de DV vazia — usar DV extraído via separador explícito
-                # (hífen na string da conta, ex: "38041-5"). Não é inferência:
-                # o respondente embutiu o DV no campo da conta com hífen.
-                dig_cc = dig_cc_inline
-
-            # ── Validação e padronização final conforme regras bancárias ──
-            agencia, dig_ag, conta, dig_cc, status_banco, excecao_banco = validar_bancario(
-                agencia, dig_ag, conta, dig_cc, codigo_banco
-            )
+            if excecao_banco:
+                log(excecao_banco, linha_planilha)
 
         else:
-            # Aluno sem correspondência no formulário: sem dados bancários
             status_banco  = 0
             excecao_banco = ""
+            laranja_banco = {"ag": False, "da": False, "cc": False, "dc": False}
 
         # --- Montar linha de saída ---
         # Datas como datetime nativo para que o numfmt mm-dd-yy do template funcione
         linhas_saida.append({
-            "No.":           len(linhas_saida) + 1,
+            "No.":       len(linhas_saida) + 1,
             "ID":            id_aluno,
             "TURMA":         turma,
             "NOME COMPLETO": nome_al,
@@ -1183,6 +1622,11 @@ def processar(path_alunos, path_bancarios, path_template=None):
             # Validação bancária
             "Status":        status_banco,
             "Excecoes":      excecao_banco,
+            # Metadados de cor laranja por campo bancário
+            "_laranja_ag":   laranja_banco.get("ag", False),
+            "_laranja_da":   laranja_banco.get("da", False),
+            "_laranja_cc":   laranja_banco.get("cc", False),
+            "_laranja_dc":   laranja_banco.get("dc", False),
             # Colunas de auditoria — dados brutos originais do formulário
             "Orig.Banco":    orig_banco   if orig_banco   not in ("nan", "")  else "",
             "Orig.Agencia":  orig_agencia if orig_agencia not in ("nan", "")  else "",
@@ -1202,7 +1646,7 @@ def processar(path_alunos, path_bancarios, path_template=None):
 # Mapeamento: chave do dicionário de saída → nome da coluna na Tabela1
 # (preserva os nomes exatos do template, incluindo acentos)
 MAPA_COLUNAS = {
-    "No.":           "No.",
+    "No.":       "No.",
     "ID":            "ID",
     "TURMA":         "TURMA",
     "NOME COMPLETO": "NOME COMPLETO",
@@ -1327,6 +1771,14 @@ def exportar_xlsx(df_saida, path_saida, path_template=None):
         # Escreve dados: Tabela1 + auditoria
         for r_offset, (_, row_df) in enumerate(df_saida.iterrows()):
             r = linha_dados_ini + r_offset
+            # Mapa: chave do df → flag de laranja correspondente
+            LARANJA_MAP = {
+                "Agencia": "_laranja_ag",
+                "Dig.Ag":  "_laranja_da",
+                "Conta":   "_laranja_cc",
+                "Dig.C/C": "_laranja_dc",
+            }
+
             # Colunas da Tabela1
             for chave_df, nome_template in MAPA_TABELA.items():
                 c_idx = cabecalho_para_col.get(nome_template)
@@ -1338,10 +1790,15 @@ def exportar_xlsx(df_saida, path_saida, path_template=None):
                 cell = ws.cell(row=r, column=c_idx, value=val)
                 est = estilos_modelo[c_idx]
                 cell.font          = copy(est["font"])
-                cell.fill          = copy(est["fill"])
                 cell.border        = copy(est["border"])
                 cell.alignment     = copy(est["alignment"])
                 cell.number_format = est["number_format"]
+                # Aplicar fill laranja se o campo bancário tem inconsistência
+                flag_col = LARANJA_MAP.get(chave_df)
+                if flag_col and row_df.get(flag_col, False):
+                    cell.fill = copy(FILL_LARANJA)
+                else:
+                    cell.fill = copy(est["fill"])
             # Colunas de auditoria (fora da tabela)
             for i, chave_df in enumerate(MAPA_AUDITORIA.keys()):
                 c = col_audit_ini + i
